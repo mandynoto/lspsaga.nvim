@@ -22,17 +22,30 @@ local function get_kind_icon(type, index)
   return kind[type][index]
 end
 
-local function respect_lsp_root(buf)
+local function respect_root(buf)
   local clients = lsp.get_active_clients({ bufnr = buf })
+  local root_dir
   if #clients == 0 then
-    return
+    -- If there's no LSP client, try to find a git root
+    local handle = io.popen('git rev-parse --show-toplevel 2>/dev/null') -- Execute the command to get git root
+    local git_root = handle:read('*a') -- Read the output of the command
+    handle:close()
+    git_root = git_root:gsub('%s+', '') -- Remove whitespaces (newline at the end)
+
+    if #git_root > 0 then
+      root_dir = git_root -- If there's a git root, use it
+    end
+  else
+    root_dir = clients[1].config.root_dir
   end
-  local root_dir = clients[1].config.root_dir
+
   local bufname = api.nvim_buf_get_name(buf)
   local bufname_parts = vim.split(bufname, libs.path_sep, { trimempty = true })
-  if not root_dir then
+
+  if not root_dir or root_dir == '' then
     return { #bufname_parts }
   end
+
   local parts = vim.split(root_dir, libs.path_sep, { trimempty = true })
   return { unpack(bufname_parts, #parts + 1) }
 end
@@ -40,7 +53,7 @@ end
 local function bar_file_name(buf)
   local res
   if config.respect_root then
-    res = respect_lsp_root(buf)
+    res = respect_root(buf)
   end
 
   --fallback to config.folder_level
@@ -399,7 +412,7 @@ local function match_ignore(buf)
 end
 
 function symbar:symbol_autocmd()
-  api.nvim_create_autocmd('LspAttach', {
+  api.nvim_create_autocmd('FileType', {
     group = api.nvim_create_augroup('LspsagaSymbols', { clear = false }),
     callback = function(opt)
       if vim.bo[opt.buf].buftype == 'nofile' then
